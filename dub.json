@@ -1,0 +1,9 @@
+{
+	"name": "fuzzycopy",
+	"authors": [
+		"burner"
+	],
+	"description": "Copying data from one struct type to another for lazy people",
+	"copyright": "Copyright © 2018, burner",
+	"license": "LGPL3"
+}
