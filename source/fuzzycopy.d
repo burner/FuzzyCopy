@@ -176,3 +176,19 @@ unittest {
 	assert(nBar.foo.b == 77);
 	assert(nBar.s == "hello");
 }
+
+unittest {
+	struct Foo {
+		long l = 126;
+	}
+
+	struct Bar {
+		byte l;
+	}
+
+	Foo f;
+	Bar b;
+
+	fuzzyCP(f, b);
+	assert(b.l == 126);
+}
