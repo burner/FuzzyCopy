@@ -31,15 +31,54 @@ unittest {
 
 enum FuzzyCP {
 	Fuzzy,
-	FromAll,
-	ToAll,
-	Both
+	AllFrom, // Does not work currently
+	AllTo,
+	Both // Does not work currently
+}
+
+string buildFromAllSwitchCase(T)() {
+	import std.conv : to;
+	import std.traits : isFunction;
+	import std.format : format;
+
+	string ret = "switch(mem) {\n";
+	size_t idx = 0;
+	static foreach(mem; __traits(allMembers, T)) {
+		static if(mem != "this" && !isFunction!(mixin(format("T.%s", mem)))) {
+			ret ~= "case \"" ~ mem ~ "\":\n";
+			ret ~= "fromMemberVisited[" ~ to!string(idx) ~ "] = true;\n";
+			ret ~= "break;\n";
+			++idx;
+		}
+	}
+
+	ret ~= "default: assert(false, mem);\n";
+	ret ~= "}\n";
+	return ret;
+}
+
+private size_t numberOfMember(T)() {
+	import std.traits : isFunction;
+	import std.format : format;
+
+	size_t ret = 0;
+	static foreach(mem; __traits(allMembers, T)) {
+		static if(mem != "this" && !isFunction!(mixin(format("T.%s", mem)))) {
+			++ret;
+		}
+	}
+
+	return ret;
 }
 
 void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target) {
 	import std.traits : hasMember, isImplicitlyConvertible, isFunction;
 	import std.format : format;
-	static foreach(mem; __traits(allMembers, typeof(from))) {{
+
+	static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllTo) {
+		bool[numberOfMember!T()] fromMemberVisited;
+	}
+	foreach(mem; __traits(allMembers, typeof(from))) {
 		// we can not copy function so don't try
 		static if(mem != "this" && !isFunction!(mixin(format("F.%s", mem)))) {
 			alias FromType = typeof(__traits(getMember, from, mem));
@@ -56,6 +95,8 @@ void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target
 							__traits(getMember, from, mem), 
 							__traits(getMember, target, mem)
 						);
+					//pragma(msg, buildFromAllSwitchCase!F());
+					//mixin(buildFromAllSwitchCase!F());
 				// assign if it is assignable
 				} else  static if(isImplicitlyConvertible!(FromType,ToType)) {
 					__traits(getMember, target, mem) = std.conv.to!(ToType)(
@@ -82,7 +123,7 @@ void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target
 					FC, T.stringof, mem));
 			}
 		}
-	}}
+	}
 }
 
 unittest {
