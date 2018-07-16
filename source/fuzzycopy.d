@@ -178,6 +178,7 @@ unittest {
 }
 
 unittest {
+	import std.exception : assertThrown;
 	struct Foo {
 		long l = 126;
 	}
@@ -191,4 +192,7 @@ unittest {
 
 	fuzzyCP(f, b);
 	assert(b.l == 126);
+	
+	f.l = 128;
+	assertThrown(fuzzyCP(f, b));
 }
