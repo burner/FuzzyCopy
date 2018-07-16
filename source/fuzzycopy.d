@@ -30,30 +30,60 @@ unittest {
 }
 
 enum FuzzyCP {
-	Strict,
-	Fuzzy
+	Fuzzy,
+	FromAll,
+	ToAll,
+	Both
 }
 
-void fuzzyCP(F,T)(ref F from, ref T to) {
-	import std.traits : hasMember, isImplicitlyConvertible;
-	foreach(mem; __traits(allMembers, F)) {
-		alias FromType = typeof(__traits(getMember, to, mem));
+void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target) {
+	import std.traits : hasMember, isImplicitlyConvertible, isFunction;
+	import std.format : format;
+	static foreach(mem; __traits(allMembers, typeof(from))) {{
+		// we can not copy function so don't try
+		static if(mem == "this" || isFunction!(mixin(format("F.%s", mem)))) {
+		} else {
+			alias FromType = typeof(__traits(getMember, from, mem));
+			//pragma(msg, mem ~ " " ~ FromType.stringof);
 
-		// check if to has a value of the same name
-		static if(hasMember!(T, mem)) {
-			alias ToType = typeof(__traits(getMember, to, mem));
+			// check if target has a value of the same name
+			static if(hasMember!(T, mem)) {
+				static import std.conv;
+				alias ToType = typeof(__traits(getMember, target, mem));
 
-			// recursive if it is a struct
-			static if(is(FromType == struct) && is(ToType == struct)) {
-				fuzzyCP(__traits(getMember, from, mem), 
-						__traits(getMember, to, mem)
-					);
-			// assign if it is assignable
-			} else  static if(isImplicitlyConvertible!(FromType,ToType)) {
-				__traits(getMember, to, mem) = __traits(getMember, from, mem);
+				// recursive if it is a struct
+				static if(is(FromType == struct) && is(ToType == struct)) {
+					fuzzyCP!(FromType,ToType,FC)(
+							__traits(getMember, from, mem), 
+							__traits(getMember, target, mem)
+						);
+				// assign if it is assignable
+				} else  static if(isImplicitlyConvertible!(FromType,ToType)) {
+					__traits(getMember, target, mem) = std.conv.to!(ToType)(
+							__traits(getMember, from, mem)
+						);
+				} else  static if(canBeConvertedWithTo!(FromType,ToType)) {
+					__traits(getMember, target, mem) = std.conv.to!(ToType)(
+							__traits(getMember, from, mem)
+						);
+				} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.FromAll) {
+					import std.format : format;
+					static assert(false, format(
+						"fuzzyCP is using '%s' Mode and From '%s' and To '%s' have" 
+						~ " a member '%s' but From.%s can not be converted target "
+						~ "To.%s",
+						FC, F.stringof, T.stringof, mem, FromType.stringof, 
+						ToType.stringof));
+				}
+			// for FromAll and Both To needs a member
+			} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.FromAll) {
+				import std.format : format;
+				static assert(false, format(
+					"fuzzyCP is using %s Mode and %s has no member named %s",
+					FC, T.stringof, mem));
 			}
 		}
-	}
+	}}
 }
 
 unittest {
@@ -104,6 +134,41 @@ unittest {
 	NotBar nBar;
 
 	fuzzyCP(bar, nBar);
+
+	assert(nBar.foo.a == 99);
+	assert(nBar.foo.b == 77);
+	assert(nBar.s == "hello");
+}
+
+unittest {
+	struct Foo {
+		int a = 99;
+		int b = 77;
+	}
+
+	struct Bar {
+		Foo foo;
+		string s = "hello";
+		string fun() {
+			return s;
+		}
+	}
+
+	struct NotFoo {
+		byte a;
+		ushort b;
+	}
+
+	struct NotBar {
+		NotFoo foo;
+		string s;
+	}
+
+	Bar bar;
+	NotBar nBar;
+
+	pragma(msg, "167");
+	fuzzyCP!(Bar,NotBar,FuzzyCP.Both)(bar, nBar);
 
 	assert(nBar.foo.a == 99);
 	assert(nBar.foo.b == 77);

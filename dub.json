@@ -3,6 +3,7 @@
 	"authors": [
 		"burner"
 	],
+	"dflags": ["-dip1000", "-dip25"],
 	"description": "Copying data from one struct type to another for lazy people",
 	"copyright": "Copyright © 2018, burner",
 	"license": "LGPL3"
