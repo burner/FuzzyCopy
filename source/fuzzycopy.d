@@ -41,8 +41,7 @@ void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target
 	import std.format : format;
 	static foreach(mem; __traits(allMembers, typeof(from))) {{
 		// we can not copy function so don't try
-		static if(mem == "this" || isFunction!(mixin(format("F.%s", mem)))) {
-		} else {
+		static if(mem != "this" && !isFunction!(mixin(format("F.%s", mem)))) {
 			alias FromType = typeof(__traits(getMember, from, mem));
 			//pragma(msg, mem ~ " " ~ FromType.stringof);
 
@@ -144,6 +143,10 @@ unittest {
 	struct Foo {
 		int a = 99;
 		int b = 77;
+
+		int fun2() {
+			return b;
+		}
 	}
 
 	struct Bar {
@@ -167,7 +170,6 @@ unittest {
 	Bar bar;
 	NotBar nBar;
 
-	pragma(msg, "167");
 	fuzzyCP!(Bar,NotBar,FuzzyCP.Both)(bar, nBar);
 
 	assert(nBar.foo.a == 99);
