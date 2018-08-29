@@ -106,7 +106,7 @@ void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target
 					__traits(getMember, target, mem) = std.conv.to!(ToType)(
 							__traits(getMember, from, mem)
 						);
-				} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.FromAll) {
+				} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllFrom) {
 					import std.format : format;
 					static assert(false, format(
 						"fuzzyCP is using '%s' Mode and From '%s' and To '%s' have" 
@@ -116,7 +116,7 @@ void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target
 						ToType.stringof));
 				}
 			// for FromAll and Both To needs a member
-			} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.FromAll) {
+			} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllFrom) {
 				import std.format : format;
 				static assert(false, format(
 					"fuzzyCP is using %s Mode and %s has no member named %s",
@@ -236,4 +236,7 @@ unittest {
 	
 	f.l = 128;
 	assertThrown(fuzzyCP(f, b));
+
+	static assert(!__traits(compiles, fuccyCP!(Foo,Bar,FuzzyCP.FromAll)));
+	static assert(!__traits(compiles, fuccyCP!(Foo,Bar,FuzzyCP.ToAll)));
 }
