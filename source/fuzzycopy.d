@@ -1,19 +1,127 @@
 module fuzzycopy;
 
-template canBeConvertedWithTo(F,T) {
-	import std.traits : isIntegral, isFloatingPoint, isArray;
-	import std.range : ElementEncodingType;
+import std.algorithm.iteration : map;
+import std.array : array, empty;
+import std.conv : to;
+import std.format : format;
+import std.range : ElementEncodingType;
+import std.traits : isFunction, hasMember, isImplicitlyConvertible,
+	isIntegral, isFloatingPoint, isArray, isSomeString, FieldNameTuple;
+import std.typecons : Nullable, nullable;
+import std.stdio;
 
-	static if(isIntegral!F && isIntegral!T) {
+template isNullable(T) {
+	enum isNullable = is(T : Nullable!F, F);
+}
+
+template Type(T) {
+	static if(is(T : Nullable!F, F)) {
+		alias Type = F;
+	} else {
+		alias Type = T;
+	}
+}
+
+template extractBaseType(T) {
+	static if(is(T : Nullable!F, F)) {
+		alias extractBaseType = .extractBaseType!F;
+	} else static if(isArray!T && !isSomeString!T) {
+		alias extractBaseType = .extractBaseType!(ElementEncodingType!T);
+	} else {
+		alias extractBaseType = T;
+	}
+}
+
+unittest {
+	static assert(is(extractBaseType!float == float));
+	static assert(is(extractBaseType!(Nullable!float) == float));
+	static assert(is(extractBaseType!(Nullable!(float[])) == float));
+	static assert(is(extractBaseType!(Nullable!(Nullable!float[])) == float));
+	static assert(is(extractBaseType!string == string));
+	static assert(is(extractBaseType!(Nullable!string) == string));
+	static assert(is(extractBaseType!(Nullable!(string[])) == string));
+	static assert(is(extractBaseType!(Nullable!(Nullable!string[])) == string));
+}
+
+template arrayDepth(T) {
+	static if(isArray!T && !isSomeString!T) {
+		enum arrayDepth = 1 + .arrayDepth!(ElementEncodingType!T);
+	} else static if(is(T : Nullable!F, F)) {
+		enum arrayDepth = .arrayDepth!F;
+	} else {
+		enum arrayDepth = 0;
+	}
+}
+
+unittest {
+	static assert(arrayDepth!(int[]) == 1);
+	static assert(arrayDepth!(int) == 0);
+	static assert(arrayDepth!(int[][]) == 2);
+	static assert(arrayDepth!(Nullable!(int[])[]) == 2);
+}
+
+template StripNullable(T) {
+	static if(is(T : Nullable!F, F)) {
+		alias StripNullable = .StripNullable!F;
+	} else static if(isArray!T && !isSomeString!T) {
+		alias StripNullable = .StripNullable!(ElementEncodingType!T)[];
+	} else {
+		alias StripNullable = T;
+	}
+}
+
+unittest {
+	static assert(is(StripNullable!(int) == int));
+	static assert(is(StripNullable!(int[]) == int[]));
+	static assert(is(StripNullable!(Nullable!int[]) == int[]));
+	static assert(is(StripNullable!(Nullable!(int[])) == int[]));
+	static assert(is(StripNullable!(Nullable!(Nullable!int[])) == int[]));
+
+	struct Foo {
+	}
+	static assert(is(StripNullable!(Foo) == Foo));
+	static assert(is(StripNullable!(Foo[]) == Foo[]));
+	static assert(is(StripNullable!(Nullable!Foo[]) == Foo[]));
+	static assert(is(StripNullable!(Nullable!(Foo[])) == Foo[]));
+	static assert(is(StripNullable!(Nullable!(Nullable!Foo[])) == Foo[]));
+}
+
+template StripTopNullable(T) {
+	static if(is(T : Nullable!F, F)) {
+		alias StripTopNullable = F;
+	} else {
+		alias StripTopNullable = T;
+	}
+}
+
+unittest {
+	static assert(is(StripTopNullable!(int) == int));
+	static assert(is(StripTopNullable!(int[]) == int[]));
+	static assert(is(StripTopNullable!(Nullable!(int[])) == int[]));
+	static assert(is(StripTopNullable!(Nullable!(int[])) == int[]));
+	static assert(is(StripTopNullable!(Nullable!(Nullable!int[])) == Nullable!(int)[]));
+}
+
+template canBeConvertedWithTo(F,T) {
+	alias FT = extractBaseType!F;
+	alias TT = extractBaseType!T;
+	enum FD = arrayDepth!F;
+	enum TD = arrayDepth!T;
+
+	static if(isIntegral!FT && isIntegral!TT && FD == TD && FD == 0) {
 		enum canBeConvertedWithTo = true;
-	} else static if(isIntegral!F && isFloatingPoint!T) {
+	} else static if(isIntegral!FT && isFloatingPoint!TT 
+			&& FD == TD && FD == 0) 
+	{
 		enum canBeConvertedWithTo = true;
-	} else static if(isFloatingPoint!F && isIntegral!T) {
+	} else static if(isFloatingPoint!FT && isIntegral!TT && FD == TD 
+			&& FD == 0) 
+	{
 		enum canBeConvertedWithTo = true;
-	} else static if(isArray!F && isArray!T) {
-		alias FType = ElementEncodingType!F;
-		alias TType = ElementEncodingType!T;
-		enum canBeConvertedWithTo = canBeConvertedWithTo!(FType,TType);
+	} else static if(isSomeString!FT && isSomeString!TT && FD == TD 
+			&& FD == 0) 
+	{
+		enum canBeConvertedWithTo = true;
 	} else {
 		enum canBeConvertedWithTo = false;
 	}
@@ -24,103 +132,120 @@ unittest {
 	static assert(canBeConvertedWithTo!(byte,float));
 	static assert(!canBeConvertedWithTo!(string,float));
 	static assert(!canBeConvertedWithTo!(int[],float));
-	static assert(canBeConvertedWithTo!(int[],float[]));
-	static assert(canBeConvertedWithTo!(byte[],double[]));
-	static assert(canBeConvertedWithTo!(double[],ubyte[]));
+	static assert(!canBeConvertedWithTo!(int[],float[]));
+	static assert(!canBeConvertedWithTo!(byte[],double[]));
+	static assert(!canBeConvertedWithTo!(double[],ubyte[]));
 }
 
-enum FuzzyCP {
-	Fuzzy,
-	AllFrom, // Does not work currently
-	AllTo,
-	Both // Does not work currently
-}
+auto getValue(TnN,F,string mem)(ref F f) {
+	alias FMem = typeof(__traits(getMember, F, mem));
+	enum FiN = isNullable!FMem;
 
-string buildFromAllSwitchCase(T)() {
-	import std.conv : to;
-	import std.traits : isFunction;
-	import std.format : format;
-
-	string ret = "switch(mem) {\n";
-	size_t idx = 0;
-	static foreach(mem; __traits(allMembers, T)) {
-		static if(mem != "this" && !isFunction!(mixin(format("T.%s", mem)))) {
-			ret ~= "case \"" ~ mem ~ "\":\n";
-			ret ~= "fromMemberVisited[" ~ to!string(idx) ~ "] = true;\n";
-			ret ~= "break;\n";
-			++idx;
-		}
+	struct Result {
+		Type!FMem value;
+		bool isNull;
 	}
 
-	ret ~= "default: assert(false, mem);\n";
-	ret ~= "}\n";
+	Result ret;
+
+	static if(FiN) {
+		if(__traits(getMember, f, mem).isNull()) {
+			ret.isNull = true;
+		} else {
+			ret.value = __traits(getMember, f, mem).get();
+			ret.isNull = false;
+		}
+	} else {
+		ret.value = __traits(getMember, f, mem);
+		ret.isNull = false;
+	}
 	return ret;
 }
 
-private size_t numberOfMember(T)() {
-	import std.traits : isFunction;
-	import std.format : format;
-
-	size_t ret = 0;
-	static foreach(mem; __traits(allMembers, T)) {
-		static if(mem != "this" && !isFunction!(mixin(format("T.%s", mem)))) {
-			++ret;
-		}
+auto getValue(T)(auto ref T t) {
+	alias TnN = StripTopNullable!T;
+	struct Ret {
+		TnN value;
+		bool isNull;
 	}
+	Ret ret;
 
+	static if(isNullable!T) {
+		if(t.isNull()) {
+			ret.isNull = true;
+		} else {
+			ret.isNull = false;
+			ret.value = t.get();
+		}
+	} else {
+		ret.isNull = false;
+		ret.value = t;
+	}
 	return ret;
 }
 
-void fuzzyCP(F,T, FuzzyCP FC = FuzzyCP.Fuzzy)(auto ref F from, auto ref T target) {
-	import std.traits : hasMember, isImplicitlyConvertible, isFunction;
-	import std.format : format;
+void fuzzyCP(F,T)(auto ref F f, auto ref T t) {
+	outer: foreach(mem; FieldNameTuple!F) {
+		static if(__traits(hasMember, T, mem)) {
+			alias FMem = typeof(__traits(getMember, F, mem));
+			alias TMem = typeof(__traits(getMember, T, mem));
+			alias FnN = StripNullable!FMem;
+			alias TnN = StripNullable!TMem;
 
-	static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllTo) {
-		bool[numberOfMember!T()] fromMemberVisited;
-	}
-	foreach(mem; __traits(allMembers, typeof(from))) {
-		// we can not copy function so don't try
-		static if(mem != "this" && !isFunction!(mixin(format("F.%s", mem)))) {
-			alias FromType = typeof(__traits(getMember, from, mem));
-			//pragma(msg, mem ~ " " ~ FromType.stringof);
+			enum FiS = is(FnN == struct);
+			enum TiS = is(TnN == struct);
 
-			// check if target has a value of the same name
-			static if(hasMember!(T, mem)) {
-				static import std.conv;
-				alias ToType = typeof(__traits(getMember, target, mem));
+			enum FiN = isNullable!FMem;
+			enum TiN = isNullable!TMem;
 
-				// recursive if it is a struct
-				static if(is(FromType == struct) && is(ToType == struct)) {
-					fuzzyCP!(FromType,ToType,FC)(
-							__traits(getMember, from, mem), 
-							__traits(getMember, target, mem)
-						);
-					//pragma(msg, buildFromAllSwitchCase!F());
-					//mixin(buildFromAllSwitchCase!F());
-				// assign if it is assignable
-				} else  static if(isImplicitlyConvertible!(FromType,ToType)) {
-					__traits(getMember, target, mem) = std.conv.to!(ToType)(
-							__traits(getMember, from, mem)
-						);
-				} else  static if(canBeConvertedWithTo!(FromType,ToType)) {
-					__traits(getMember, target, mem) = std.conv.to!(ToType)(
-							__traits(getMember, from, mem)
-						);
-				} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllFrom) {
-					import std.format : format;
-					static assert(false, format(
-						"fuzzyCP is using '%s' Mode and From '%s' and To '%s' have" 
-						~ " a member '%s' but From.%s can not be converted target "
-						~ "To.%s",
-						FC, F.stringof, T.stringof, mem, FromType.stringof, 
-						ToType.stringof));
+			enum FiA = isArray!FnN;
+			enum TiA = isArray!TnN;
+
+			enum Fd = arrayDepth!FnN;
+			enum Td = arrayDepth!TnN;
+
+			static if(FiS && TiS) { // two struct
+				fuzzyCP(__traits(getMember, f, mem), 
+						__traits(getMember, t, mem)
+					);
+			} else static if(is(FMem == TMem)) { // same types
+				__traits(getMember, t, mem) = __traits(getMember, f, mem);
+			} else static if(FiA && TiA && Fd == Td && Fd == 1) {
+				alias Tet = ElementEncodingType!(StripTopNullable!(TMem));
+				auto arr = getValue!(TnN,F,mem)(f);
+
+				Tet[] tmp;
+				if(!arr.isNull) {
+					foreach(it; arr.value) {
+						auto itV = getValue(it);
+						if(!itV.isNull) {
+							static if(isNullable!Tet) {
+								tmp ~= nullable(itV.value);
+							} else {
+								tmp ~= itV.value;
+							}
+						}
+					}
 				}
-			// for FromAll and Both To needs a member
-			} else static if(FC == FuzzyCP.Both || FC == FuzzyCP.AllFrom) {
-				import std.format : format;
-				static assert(false, format(
-					"fuzzyCP is using %s Mode and %s has no member named %s",
-					FC, T.stringof, mem));
+				static if(isNullable!(TMem)) {
+					if(!tmp.empty) {
+						__traits(getMember, t, mem) = nullable(tmp);
+					}
+				} else {
+					if(!tmp.empty) {
+						__traits(getMember, t, mem) = tmp;
+					}
+				}
+			} else static if(canBeConvertedWithTo!(FnN,TnN)) { // using to!
+				auto val = getValue!(TnN,F,mem)(f);
+				if(!val.isNull) {
+					static if(TiN) {
+						__traits(getMember, t, mem) = nullable(to!TnN(val.value));
+					} else {
+						//writefln("%s %s", mem, fVal);
+						__traits(getMember, t, mem) = to!TMem(val.value);
+					}
+				}
 			}
 		}
 	}
@@ -158,6 +283,7 @@ unittest {
 	struct Bar {
 		Foo foo;
 		string s = "hello";
+		wstring r = "world";
 	}
 
 	struct NotFoo {
@@ -168,6 +294,7 @@ unittest {
 	struct NotBar {
 		NotFoo foo;
 		string s;
+		dstring r;
 	}
 
 	Bar bar;
@@ -177,66 +304,451 @@ unittest {
 
 	assert(nBar.foo.a == 99);
 	assert(nBar.foo.b == 77);
-	assert(nBar.s == "hello");
+	assert(nBar.s == "hello", format("'%s'", nBar.s));
+	assert(nBar.r == "world", format("'%s'", nBar.r));
 }
 
 unittest {
 	struct Foo {
 		int a = 99;
-		int b = 77;
-
-		int fun2() {
-			return b;
-		}
-	}
-
-	struct Bar {
-		Foo foo;
-		string s = "hello";
-		string fun() {
-			return s;
-		}
+		Nullable!int b = 77;
+		int c = 66;
 	}
 
 	struct NotFoo {
-		byte a;
-		ushort b;
+		long a;
+		long b;
+		Nullable!byte c;
 	}
 
-	struct NotBar {
-		NotFoo foo;
-		string s;
-	}
+	Foo foo;
+	NotFoo nFoo;
 
-	Bar bar;
-	NotBar nBar;
+	fuzzyCP(foo, nFoo);
 
-	fuzzyCP!(Bar,NotBar,FuzzyCP.Both)(bar, nBar);
-
-	assert(nBar.foo.a == 99);
-	assert(nBar.foo.b == 77);
-	assert(nBar.s == "hello");
+	assert(nFoo.a == 99);
+	assert(nFoo.b == 77, format("%s", nFoo.b));
+	assert(nFoo.c.get() == 66);
 }
 
 unittest {
-	import std.exception : assertThrown;
 	struct Foo {
-		long l = 126;
+		int a = 99;
+		Nullable!int b = 77;
+		int c = 66;
 	}
 
 	struct Bar {
-		byte l;
+		Foo[] foos;
+	}
+
+	struct NotFoo {
+		long a;
+		long b;
+		Nullable!byte c;
+	}
+
+	struct NotBar {
+		Foo[] foos;
+	}
+
+	Bar bar;
+	bar.foos = [Foo.init, Foo.init];
+	NotBar nBar;
+
+	fuzzyCP(bar, nBar);
+
+	assert(nBar.foos.length == 2, format("%s", nBar.foos.length));
+}
+
+unittest {
+	struct Foo {
+		Nullable!(int)[] i;
+	}
+
+	struct Bar {
+		int[] i;
 	}
 
 	Foo f;
+	f.i = [nullable(1), nullable(2), Nullable!(int).init];
+
 	Bar b;
-
 	fuzzyCP(f, b);
-	assert(b.l == 126);
-	
-	f.l = 128;
-	assertThrown(fuzzyCP(f, b));
+	assert(b.i.length == 2);
+	assert(b.i == [1, 2]);
+}
 
-	static assert(!__traits(compiles, fuccyCP!(Foo,Bar,FuzzyCP.FromAll)));
-	static assert(!__traits(compiles, fuccyCP!(Foo,Bar,FuzzyCP.ToAll)));
+unittest {
+	struct Foo {
+		Nullable!(int)[] i;
+	}
+
+	struct Bar {
+		Nullable!(int[]) i;
+	}
+
+	Foo f;
+	f.i = [nullable(1), nullable(2), Nullable!(int).init];
+
+	Bar b;
+	fuzzyCP(f, b);
+	assert(!b.i.isNull());
+	assert(b.i.get().length == 2);
+	assert(b.i.get() == [1, 2]);
+}
+
+unittest {
+	struct Foo {
+		Nullable!(int)[] i;
+	}
+
+	struct Bar {
+		int[] i;
+	}
+
+	Foo f;
+
+	Bar b;
+	fuzzyCP(f, b);
+	assert(b.i.length == 0);
+}
+
+unittest {
+	struct Foo {
+		Nullable!(Nullable!(int)[]) i;
+	}
+
+	struct Bar {
+		Nullable!(int[]) i;
+	}
+
+	Foo f;
+	f.i = [nullable(1), nullable(2), Nullable!(int).init];
+
+	Bar b;
+	fuzzyCP(f, b);
+	assert(!b.i.isNull());
+	assert(b.i.get().length == 2);
+	assert(b.i.get() == [1, 2]);
+}
+
+template CanBeConverted(F,T) {
+	alias FnN = StripTopNullable!F;
+	alias TnN = StripTopNullable!T;
+
+	static if(is(FnN == TnN)) {
+		enum CanBeConverted = true;
+	} else static if(is(FnN == struct) && is(TnN == struct)) {
+		enum CanBeConverted = true;
+	} else static if(isSomeString!FnN && isSomeString!TnN) {
+		enum CanBeConverted = true;
+	} else static if(isArray!FnN && isArray!TnN) {
+		enum CanBeConverted = .CanBeConverted!(
+				ElementEncodingType!FnN,
+				ElementEncodingType!TnN);
+	} else static if((isIntegral!FnN || isFloatingPoint!FnN)
+			|| (isIntegral!TnN || isFloatingPoint!TnN))
+	{
+		enum CanBeConverted = true;
+	} else {
+		enum CanBeConverted = false;
+	}
+}
+
+auto wrap(T,Val)(Val v) {
+	static if(is(T : Nullable!F, F)) {
+		return nullable(v);
+	} else {
+		return v;
+	}
+}
+
+auto nullAccess(V)(V val) {
+	struct Ret {
+
+	}
+}
+
+T fuzzyTo(T,F)(F f) {
+	T ret;
+	foreach(mem; FieldNameTuple!F) {
+		static if(__traits(hasMember, T, mem)) {
+			alias FT = typeof(__traits(getMember, F, mem));
+			alias TT = typeof(__traits(getMember, T, mem));
+			static if(CanBeConverted!(FT, TT)) {
+				alias FnN = StripTopNullable!FT;
+				auto memVal = getValue(__traits(getMember, f, mem));
+				if(memVal.isNull) {
+					continue;
+				}
+
+				alias TnN = StripTopNullable!TT;
+
+				static if(canBeConvertedWithTo!(FnN,TnN)) {
+					__traits(getMember, ret, mem) = wrap!TT(
+							to!TnN(memVal.value)
+						);
+				} else static if(is(FnN == struct)) {
+					__traits(getMember, ret, mem) = wrap!TT(
+							fuzzyTo!TnN(memVal.value)
+						);
+				} else static if(isArray!FnN) {
+					alias TET = ElementEncodingType!TnN;
+					alias TETNN = StripTopNullable!TET;
+					TET[] arr;
+					foreach(it; memVal.value) {
+						auto itVal = getValue(it);
+						if(!itVal.isNull) {
+							static if(canBeConvertedWithTo!(typeof(itVal.value),TETNN))
+							{
+								arr ~= wrap!TET(to!TETNN(itVal.value));
+							} else {
+								arr ~= wrap!TET(fuzzyTo!TETNN(itVal.value));
+							}
+						}
+					}
+					static if(isNullable!TT) {
+						__traits(getMember, ret, mem) = nullable(arr);
+					} else {
+						__traits(getMember, ret, mem) = arr;
+					}
+				}
+			}
+		}
+	}
+
+	return ret;
+}
+
+unittest {
+	struct F {
+		int a = 13;
+	}
+
+	struct T {
+		byte a;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		float[] f = [1,2,3];
+	}
+
+	struct T {
+		byte a;
+		byte[] f;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		Nullable!(float)[] f = [nullable(1.0),nullable(2.0),nullable(3.0)];
+	}
+
+	struct T {
+		byte a;
+		byte[] f;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		Nullable!(float)[] f = [nullable(1.0),nullable(2.0),nullable(3.0)];
+	}
+
+	struct T {
+		byte a;
+		Nullable!(byte)[] f;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		Nullable!(Nullable!(double)[]) f;
+	}
+
+	struct T {
+		byte a;
+		Nullable!(byte)[] f;
+	}
+
+	F f;
+	f.f = nullable([nullable(1.0),nullable(2.0),nullable(3.0)]);
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		Nullable!(Nullable!(double)[]) f;
+	}
+
+	struct T {
+		byte a;
+		Nullable!(byte[]) f;
+	}
+
+	F f;
+	f.f = nullable([nullable(1.0),nullable(2.0),nullable(3.0)]);
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct F {
+		int a = 13;
+		Nullable!(Nullable!(double)[]) f;
+	}
+
+	struct T {
+		byte a;
+		Nullable!(Nullable!byte[]) f;
+	}
+
+	F f;
+	f.f = nullable([nullable(1.0),Nullable!(double).init, nullable(2.0),nullable(3.0)]);
+	T t = fuzzyTo!T(f);
+	assert(t.a == 13);
+	assert(t.f == [1,2,3]);
+}
+
+unittest {
+	struct A {
+		float a = 10;
+	}
+
+	struct F {
+		A a;
+	}
+
+	struct B {
+		int a;
+	}
+
+	struct T {
+		B a;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a.a == 10);
+}
+
+unittest {
+	struct A {
+		float a = 10;
+	}
+
+	struct F {
+		Nullable!A a = nullable(A.init);
+	}
+
+	struct B {
+		int a;
+	}
+
+	struct T {
+		B a;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a.a == 10);
+}
+
+unittest {
+	struct A {
+		Nullable!float a = nullable(10.0);
+	}
+
+	struct F {
+		Nullable!A a = nullable(A.init);
+	}
+
+	struct B {
+		int a;
+	}
+
+	struct T {
+		B a;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a.a == 10);
+}
+
+unittest {
+	struct A {
+		Nullable!float a = nullable(10.0);
+	}
+
+	struct F {
+		Nullable!(A[]) a = nullable([A.init, A.init]);
+	}
+
+	struct B {
+		int a;
+	}
+
+	struct T {
+		B[] a;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a.map!(it => it.a).array == [10, 10]);
+}
+
+unittest {
+	struct A {
+		Nullable!float a;
+	}
+
+	struct F {
+		Nullable!(A[]) a = nullable([A.init, A.init]);
+		Nullable!(A[]) b;
+	}
+
+	struct B {
+		int a;
+	}
+
+	struct T {
+		B[] a;
+		B[] b;
+	}
+
+	F f;
+	T t = fuzzyTo!T(f);
+	assert(t.a.length == 2);
+	assert(t.b.empty);
 }
