@@ -336,6 +336,7 @@ unittest {
 		int a = 99;
 		Nullable!int b = 77;
 		int c = 66;
+		int d;
 	}
 
 	struct Bar {
