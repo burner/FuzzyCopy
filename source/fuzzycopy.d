@@ -185,6 +185,9 @@ auto getValue(T)(auto ref T t) {
 }
 
 void fuzzyCP(F,T)(auto ref F f, auto ref T t) {
+	static if(is(F == T)) {
+		t = f;
+	} else {
 	outer: foreach(mem; FieldNameTuple!F) {
 		static if(__traits(hasMember, T, mem)) {
 			alias FMem = typeof(__traits(getMember, F, mem));
@@ -248,6 +251,7 @@ void fuzzyCP(F,T)(auto ref F f, auto ref T t) {
 				}
 			}
 		}
+	}
 	}
 }
 
@@ -472,6 +476,9 @@ auto nullAccess(V)(V val) {
 }
 
 T fuzzyTo(T,F)(F f) {
+	static if(is(T == F)) {
+		return f;
+	} else {
 	T ret;
 	foreach(mem; FieldNameTuple!F) {
 		static if(__traits(hasMember, T, mem)) {
@@ -520,6 +527,7 @@ T fuzzyTo(T,F)(F f) {
 	}
 
 	return ret;
+	}
 }
 
 unittest {
@@ -534,6 +542,8 @@ unittest {
 	F f;
 	T t = fuzzyTo!T(f);
 	assert(t.a == 13);
+
+	F f2 = fuzzyTo!F(f);
 }
 
 unittest {
