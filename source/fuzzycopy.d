@@ -6,7 +6,8 @@ import std.conv : to;
 import std.format : format;
 import std.range : ElementEncodingType;
 import std.traits : isFunction, hasMember, isImplicitlyConvertible,
-	isIntegral, isFloatingPoint, isArray, isSomeString, FieldNameTuple;
+	isIntegral, isFloatingPoint, isArray, isSomeString, FieldNameTuple,
+	Unqual;
 import std.typecons : Nullable, nullable;
 import std.stdio;
 
@@ -163,7 +164,7 @@ auto getValue(TnN,F,string mem)(ref F f) {
 }
 
 auto getValue(T)(auto ref T t) {
-	alias TnN = StripTopNullable!T;
+	alias TnN = Unqual!(StripTopNullable!T);
 	struct Ret {
 		TnN value;
 		bool isNull;
@@ -566,7 +567,7 @@ unittest {
 unittest {
 	struct F {
 		int a = 13;
-		Nullable!(float)[] f = [nullable(1.0),nullable(2.0),nullable(3.0)];
+		Nullable!(float)[] f = [nullable(1.0f),nullable(2.0f),nullable(3.0f)];
 	}
 
 	struct T {
@@ -583,7 +584,7 @@ unittest {
 unittest {
 	struct F {
 		int a = 13;
-		Nullable!(float)[] f = [nullable(1.0),nullable(2.0),nullable(3.0)];
+		Nullable!(float)[] f = [nullable(1.0f),nullable(2.0f),nullable(3.0f)];
 	}
 
 	struct T {
@@ -697,7 +698,7 @@ unittest {
 
 unittest {
 	struct A {
-		Nullable!float a = nullable(10.0);
+		Nullable!float a = nullable(10.0f);
 	}
 
 	struct F {
@@ -719,7 +720,7 @@ unittest {
 
 unittest {
 	struct A {
-		Nullable!float a = nullable(10.0);
+		Nullable!float a = nullable(10.0f);
 	}
 
 	struct F {
